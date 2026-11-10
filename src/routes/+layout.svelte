@@ -22,7 +22,9 @@
 </script>
 
 <div class="flex min-h-screen flex-col bg-zinc-100 text-zinc-900">
-	<Header />
+    {#if !page.route.id == "/login"}
+        <Header />
+    {/if}
 
 	<main class="mx-auto flex w-full max-w-5xl flex-1 flex-col p-4">
 		{#if allowed}
