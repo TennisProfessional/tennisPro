@@ -24,6 +24,10 @@
 	});
 </script>
 
+<svelte:head>
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap" rel="stylesheet"/>
+</svelte:head>
+
 <div class="flex min-h-screen flex-col bg-[#1e482f] text-zinc-900">
 	{#if page.route.id !== '/login'}
 	<Navbar fluid={true} class="relative border-b border-white/20 !bg-[#1e482f] px-6 py-3">
@@ -36,13 +40,14 @@
   	{#if session.user.photoURL}
   		<img src={session.user.photoURL} class="h-8 w-8 rounded-full object-cover" alt="Profile" referrerpolicy="no-referrer"/>
 			{/if}
-			<button type="button" onclick={signOutUser} class="cursor-pointer text-sm font-medium text-white/80 hover:text-white">
+			<!-- h1 class="figma-text" -->
+			<button type="button" onclick={signOutUser} class="app-header cursor-pointer text-[#f0ebdd] hover:text-white">
 			Sign out
 			</button>
   				{/if}
   				<NavHamburger />
 			</div>
-			<NavUl class = "md:order-1">
+			<NavUl class="app-header md:order-1">
 				<NavLi href="/">Dashboard</NavLi>
 				<NavLi href="/library">Library</NavLi>
 				<NavLi href="/analysis">Analysis</NavLi>

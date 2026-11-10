@@ -4,3 +4,18 @@
 @plugin 'flowbite/plugin';
 
 @source "../../node_modules/flowbite-svelte/dist";
+
+.app-header {
+	font-family: 'Inter', sans-serif;
+	font-size: 13px;
+	font-weight: 400;
+	letter-spacing: 2.6px;
+}
+
+.app-header a {
+	color: #f0ebdd;
+	font-family: inherit;
+	font-size: 13px;
+	font-weight: inherit;
+	letter-spacing: inherit;
+}
