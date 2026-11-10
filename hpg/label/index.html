@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tennis Labeler</title>
+<style>
+:root{--bg:#14161a;--panel:#1d2026;--line:#2e333b;--fg:#e6e8eb;--dim:#8b929c;--acc:#4da3ff;--ok:#4cc38a;--bad:#ef6a6a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;display:grid;grid-template-columns:1fr 360px;height:100vh}
+main{display:flex;flex-direction:column;min-width:0}
+#stage{position:relative;flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center}
+video{max-width:100%;max-height:100%;display:block}
+#mark{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border:2px solid var(--bad);border-radius:50%;pointer-events:none;display:none}
+#drop{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim)}
+#bar{display:flex;gap:12px;align-items:center;padding:8px 12px;background:var(--panel);border-top:1px solid var(--line)}
+#bar input[type=range]{flex:1}
+#info{font-variant-numeric:tabular-nums;min-width:210px}
+aside{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+section{padding:10px 12px;border-bottom:1px solid var(--line)}
+.tabs{display:flex;flex-wrap:wrap;gap:4px}
+button,select,input[type=number],input[type=text]{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 9px;font:inherit}
+button{cursor:pointer}
+button.on{background:var(--acc);border-color:var(--acc);color:#001}
+button:hover{border-color:var(--acc)}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:8px}
+.row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.dim{color:var(--dim);font-size:12px}
+#list{flex:1;overflow:auto;padding:0}
+#list div{display:flex;gap:8px;padding:4px 12px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;cursor:pointer}
+#list div:hover{background:var(--bg)}
+#list span.k{color:var(--dim);width:64px}
+#list b{margin-left:auto;color:var(--bad);font-weight:400}
+#toast{position:fixed;left:16px;bottom:64px;background:var(--panel);border:1px solid var(--line);padding:6px 12px;border-radius:6px;opacity:0;transition:opacity .2s}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<main>
+  <div id="stage">
+    <video id="v" muted playsinline></video>
+    <div id="mark"></div>
+    <label id="drop">Choose or drop a video <input id="file" type="file" accept="video/*" style="margin-left:10px"></label>
+  </div>
+  <div id="bar">
+    <input id="seek" type="range" min="0" max="0" value="0">
+    <span id="info">frame 0 / 0</span>
+    <label class="dim">fps <input id="fps" type="number" value="60" min="1" max="240" style="width:64px"></label>
+    <label class="dim">speed <select id="rate"><option>0.1</option><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option></select></label>
+  </div>
+</main>
+<aside>
+  <section>
+    <div class="tabs" id="tabs"></div>
+    <div id="controls"></div>
+  </section>
+  <section class="dim" id="help"></section>
+  <div id="list"></div>
+  <section>
+    <div class="row">
+      <button id="csv">Export CSV</button>
+      <button id="json">Export JSON</button>
+      <label><button id="loadbtn" onclick="document.getElementById('imp').click()">Import JSON</button><input id="imp" type="file" accept=".json" hidden></label>
+    </div>
+  </section>
+</aside>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+const v = $("v");
+const TYPES = { s: "serve", f: "forehand", b: "backhand", v: "volley", m: "smash", o: "other" };
+const SERVE_RESULTS = { i: "in", x: "fault", a: "ace", d: "double_fault" };
+const ENDINGS = { w: "winner", u: "unforced_error", f: "forced_error", d: "double_fault", a: "ace" };
+const MODES = ["hits", "points", "bounces", "ball", "players"];
+
+const state = {
+  name: "",
+  data: { hits: [], points: [], bounces: [], ball: [], players: { near: "", far: "" } },
+  mode: "hits",
+  side: "near",
+  sample: [],
+  sampleIdx: 0,
+  open: null,
+};
+
+const fps = () => Math.max(1, +$("fps").value || 60);
+const total = () => Math.round((v.duration || 0) * fps());
+const frame = () => Math.round(v.currentTime * fps());
+const go = n => { v.pause(); v.currentTime = Math.min(Math.max(0, n), total()) / fps() + 0.0001; };
+const key = () => "labeler:" + state.name;
+
+function toast(t) {
+  const el = $("toast");
+  el.textContent = t;
+  el.classList.add("show");
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => el.classList.remove("show"), 1200);
+}
+
+function save() {
+  try { localStorage.setItem(key(), JSON.stringify(state.data)); } catch (e) {}
+}
+
+function restore() {
+  try {
+    const s = localStorage.getItem(key());
+    if (s) state.data = { ...state.data, ...JSON.parse(s) };
+  } catch (e) {}
+}
+
+function load(file) {
+  state.name = file.name;
+  state.data = { hits: [], points: [], bounces: [], ball: [], players: { near: "", far: "" } };
+  restore();
+  v.src = URL.createObjectURL(file);
+  $("drop").style.display = "none";
+  v.onloadedmetadata = () => {
+    $("seek").max = total();
+    makeSample();
+    render();
+    update();
+  };
+}
+
+function makeSample(n = 150) {
+  let s = 12345;
+  const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const t = total();
+  const set = new Set();
+  while (set.size < Math.min(n, t)) set.add(Math.floor(rnd() * t));
+  state.sample = [...set].sort((a, b) => a - b);
+}
+
+function update() {
+  const f = frame();
+  $("seek").value = f;
+  $("info").textContent = `frame ${f} / ${total()}  ${(f / fps()).toFixed(2)}s`;
+  drawMark();
+}
+
+function drawMark() {
+  const m = $("mark");
+  const hit = state.mode === "ball" && state.data.ball.find(b => b.frame === frame() && b.x != null);
+  if (!hit) { m.style.display = "none"; return; }
+  const r = v.getBoundingClientRect();
+  const s = $("stage").getBoundingClientRect();
+  m.style.left = r.left - s.left + (hit.x / v.videoWidth) * r.width + "px";
+  m.style.top = r.top - s.top + (hit.y / v.videoHeight) * r.height + "px";
+  m.style.display = "block";
+}
+
+function add(kind, rec) {
+  const list = state.data[kind];
+  const i = list.findIndex(x => x.frame === rec.frame && (kind !== "points" || x.event === rec.event));
+  if (i >= 0) list[i] = { ...list[i], ...rec }; else list.push(rec);
+  list.sort((a, b) => a.frame - b.frame);
+  save();
+  render();
+}
+
+function remove(kind, i) {
+  state.data[kind].splice(i, 1);
+  save();
+  render();
+}
+
+function render() {
+  $("tabs").innerHTML = "";
+  MODES.forEach((m, i) => {
+    const b = document.createElement("button");
+    b.textContent = `${i + 1} ${m}`;
+    b.className = state.mode === m ? "on" : "";
+    b.onclick = () => { state.mode = m; render(); drawMark(); };
+    $("tabs").appendChild(b);
+  });
+  controls();
+  listing();
+}
+
+function pill(label, on, fn) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (on) b.className = "on";
+  b.onclick = fn;
+  return b;
+}
+
+function controls() {
+  const c = $("controls");
+  c.innerHTML = "";
+  const h = $("help");
+  const row = document.createElement("div");
+  row.className = "row";
+  if (state.mode === "hits") {
+    row.append(pill("near ( [ )", state.side === "near", () => { state.side = "near"; render(); }),
+               pill("far ( ] )", state.side === "far", () => { state.side = "far"; render(); }));
+    const k = document.createElement("div");
+    k.className = "keys";
+    Object.entries(TYPES).forEach(([key, t]) => k.append(pill(`${key}  ${t}`, false, () => hit(t))));
+    c.append(row, k);
+    h.textContent = "Step to the first frame of contact, then press the stroke key. [ and ] switch side.";
+  } else if (state.mode === "points") {
+    const k = document.createElement("div");
+    k.className = "keys";
+    k.append(pill("p  point start", false, () => pointEvent("start")),
+             pill("e  point end", false, () => pointEvent("end")));
+    const sr = document.createElement("select");
+    sr.id = "sr";
+    ["in", "fault", "ace", "double_fault"].forEach(x => sr.add(new Option("serve: " + x, x)));
+    const en = document.createElement("select");
+    en.id = "en";
+    ["winner", "unforced_error", "forced_error", "double_fault", "ace"].forEach(x => en.add(new Option("ended: " + x, x)));
+    const sn = document.createElement("select");
+    sn.id = "sn";
+    [1, 2].forEach(x => sn.add(new Option("serve #" + x, x)));
+    row.append(sn, sr, en);
+    c.append(row, k);
+    h.textContent = "p on the serve contact, e on the last contact of the point. Pick serve and ending first.";
+  } else if (state.mode === "bounces") {
+    const k = document.createElement("div");
+    k.className = "keys";
+    k.append(pill("b  bounce", false, () => { add("bounces", { frame: frame() }); toast("bounce"); }));
+    c.append(k);
+    h.textContent = "Frame where the ball first touches the court.";
+  } else if (state.mode === "ball") {
+    row.append(pill("prev (,)", false, () => jump(-1)), pill("next (.)", false, () => jump(1)),
+               pill("not visible (X)", false, notVisible));
+    const info = document.createElement("div");
+    info.className = "dim";
+    info.style.marginTop = "8px";
+    info.textContent = `sample ${state.sampleIdx + 1} / ${state.sample.length}, done ${state.data.ball.length}`;
+    c.append(row, info);
+    h.textContent = "Click the ball center. X if hidden. Enter or . moves to the next random frame.";
+  } else {
+    const near = document.createElement("input");
+    near.type = "text"; near.placeholder = "near player track id"; near.value = state.data.players.near;
+    near.oninput = () => { state.data.players.near = near.value; save(); };
+    const far = document.createElement("input");
+    far.type = "text"; far.placeholder = "far player track id"; far.value = state.data.players.far;
+    far.oninput = () => { state.data.players.far = far.value; save(); };
+    row.append(near, far);
+    c.append(row);
+    h.textContent = "Track ids of the two real players, from the players overlay.";
+  }
+  h.textContent += "  Left/Right step 1, Shift 10, Alt 60. Space play. Delete removes the last item at this frame.";
+}
+
+function hit(type) {
+  add("hits", { frame: frame(), side: state.side, type });
+  toast(`${state.side} ${type} @ ${frame()}`);
+}
+
+function pointEvent(event) {
+  const rec = { frame: frame(), event };
+  if (event === "start") { rec.serve_number = $("sn").value; rec.serve_result = $("sr").value; }
+  else rec.ending = $("en").value;
+  add("points", rec);
+  toast(`${event} @ ${frame()}`);
+}
+
+function jump(d) {
+  if (!state.sample.length) return;
+  state.sampleIdx = Math.min(Math.max(0, state.sampleIdx + d), state.sample.length - 1);
+  go(state.sample[state.sampleIdx]);
+  render();
+}
+
+function nextUnlabeled() {
+  const done = new Set(state.data.ball.map(b => b.frame));
+  const i = state.sample.findIndex((f, idx) => idx > state.sampleIdx && !done.has(f));
+  if (i >= 0) { state.sampleIdx = i; go(state.sample[i]); }
+  render();
+}
+
+function notVisible() {
+  add("ball", { frame: frame(), x: null, y: null, visible: 0 });
+  nextUnlabeled();
+}
+
+v.addEventListener("click", e => {
+  if (state.mode !== "ball") return;
+  const r = v.getBoundingClientRect();
+  const x = Math.round(((e.clientX - r.left) / r.width) * v.videoWidth);
+  const y = Math.round(((e.clientY - r.top) / r.height) * v.videoHeight);
+  add("ball", { frame: frame(), x, y, visible: 1 });
+  drawMark();
+});
+
+function listing() {
+  const el = $("list");
+  el.innerHTML = "";
+  const kind = state.mode;
+  if (kind === "players") return;
+  state.data[kind].forEach((r, i) => {
+    const d = document.createElement("div");
+    const { frame: f, ...rest } = r;
+    const k = document.createElement("span");
+    k.className = "k";
+    k.textContent = f;
+    const t = document.createElement("span");
+    t.textContent = Object.values(rest).filter(x => x !== null && x !== "").join("  ");
+    const x = document.createElement("b");
+    x.textContent = "×";
+    x.onclick = e => { e.stopPropagation(); remove(kind, i); };
+    d.append(k, t, x);
+    d.onclick = () => go(f);
+    el.appendChild(d);
+  });
+}
+
+function csvOf(kind) {
+  const rows = state.data[kind];
+  if (!rows.length) return "";
+  const cols = [...new Set(rows.flatMap(Object.keys))];
+  const esc = x => (x == null ? "" : /[",\n]/.test(x) ? `"${String(x).replace(/"/g, '""')}"` : x);
+  return [cols.join(","), ...rows.map(r => cols.map(c => esc(r[c])).join(","))].join("\n");
+}
+
+function download(name, text, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+}
+
+$("csv").onclick = () => {
+  const base = state.name.replace(/\.[^.]+$/, "");
+  ["hits", "points", "bounces", "ball"].forEach(k => {
+    const t = csvOf(k);
+    if (t) download(`${base}_${k}.csv`, t, "text/csv");
+  });
+};
+
+$("json").onclick = () => {
+  const out = { video: state.name, fps: fps(), total_frames: total(), ...state.data };
+  download(state.name.replace(/\.[^.]+$/, "") + "_labels.json", JSON.stringify(out, null, 2), "application/json");
+};
+
+$("imp").onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const j = JSON.parse(await f.text());
+  ["hits", "points", "bounces", "ball"].forEach(k => { if (Array.isArray(j[k])) state.data[k] = j[k]; });
+  if (j.players) state.data.players = j.players;
+  save();
+  render();
+};
+
+$("file").onchange = e => e.target.files[0] && load(e.target.files[0]);
+document.body.addEventListener("dragover", e => e.preventDefault());
+document.body.addEventListener("drop", e => {
+  e.preventDefault();
+  if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]);
+});
+
+$("seek").oninput = e => go(+e.target.value);
+$("rate").onchange = () => { v.playbackRate = +$("rate").value; };
+$("fps").onchange = () => { $("seek").max = total(); update(); };
+
+if ("requestVideoFrameCallback" in v) {
+  const tick = () => { update(); v.requestVideoFrameCallback(tick); };
+  v.requestVideoFrameCallback(tick);
+} else {
+  v.addEventListener("timeupdate", update);
+}
+v.addEventListener("seeked", update);
+
+document.addEventListener("keydown", e => {
+  const tag = e.target.tagName;
+  if (tag === "INPUT" && e.target.type === "text") return;
+  if (tag === "SELECT") e.target.blur();
+  const k = e.key.toLowerCase();
+  const step = e.altKey ? 60 : e.shiftKey ? 10 : 1;
+  if (e.key === "ArrowRight") { go(frame() + step); e.preventDefault(); return; }
+  if (e.key === "ArrowLeft") { go(frame() - step); e.preventDefault(); return; }
+  if (e.key === " ") { v.paused ? v.play() : v.pause(); e.preventDefault(); return; }
+  if (e.ctrlKey || e.metaKey) return;
+  const n = MODES[+k - 1];
+  if (n) { state.mode = n; render(); drawMark(); return; }
+  if (e.key === "Delete" || e.key === "Backspace") {
+    const list = state.data[state.mode];
+    if (!Array.isArray(list)) return;
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].frame === frame()) { remove(state.mode, i); break; }
+    return;
+  }
+  if (state.mode === "hits") {
+    if (e.key === "[") { state.side = "near"; render(); }
+    else if (e.key === "]") { state.side = "far"; render(); }
+    else if (TYPES[k]) hit(TYPES[k]);
+  } else if (state.mode === "points") {
+    if (k === "p") pointEvent("start");
+    else if (k === "e") pointEvent("end");
+  } else if (state.mode === "bounces") {
+    if (k === "b") { add("bounces", { frame: frame() }); toast("bounce"); }
+  } else if (state.mode === "ball") {
+    if (k === "x") notVisible();
+    else if (k === "." || e.key === "Enter") nextUnlabeled();
+    else if (k === ",") jump(-1);
+  }
+});
+window.addEventListener("resize", drawMark);
+render();
+</script>
+</body>
+</html>
