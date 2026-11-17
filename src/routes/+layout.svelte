@@ -32,7 +32,7 @@
 	{#if page.route.id !== '/login'}
 	<Navbar fluid={true} class="relative border-b border-white/20 !bg-[#1e482f] px-6 py-3">
 	<NavBrand href="/">
-		<img src="src/tennisPro_logo.png" class="me-3 h-7 sm:h-9" alt="TennisPro Logo" />
+		<img src="images/logo.png" class="me-3 h-6 sm:h-6" alt="TennisPro Logo" />
 	</NavBrand>
 
 <div class="flex items-center gap-3 md:order-2">
@@ -47,16 +47,15 @@
   				{/if}
   				<NavHamburger />
 			</div>
-			<NavUl class="app-header md:order-1">
+			<NavUl class="app-header md:absolute md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2">
 				<NavLi href="/">Dashboard</NavLi>
 				<NavLi href="/library">Library</NavLi>
-				<NavLi href="/analysis">Analysis</NavLi>
   			</NavUl>
 		</Navbar>
 	{/if}
 
 
-	<main class="mx-auto flex w-full max-w-5xl flex-1 flex-col p-4">
+	<main class="flex w-full flex-1 flex-col p-4">
 		{#if allowed}
 			{@render children()}
 		{/if}
