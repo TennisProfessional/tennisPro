@@ -1,4 +1,19 @@
 <!-- AI Assistance was used to create and implement the button functionality for this page -->
+<script>
+	import {addVideo} from '$lib/stores/videos.svelte.js';
+
+	function videoUpload(event) {
+		const file = event.target.files[0];
+		if (!file) return;
+
+		addVideo(file);
+
+		console.log("Video added to library:", file.name);
+		event.target.value = "";
+	}
+</script>
+
+
 <svelte:head>
 	<link
 		href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;1,400&display=swap"
@@ -7,12 +22,12 @@
 	<title>TennisPro</title>
 </svelte:head>
 
-<section class="flex flex-1 flex-col items-center justify-center bg-center bg-no-repeat bg-contain" style="background-image: url('/images/tenniscourt.png')">
+<section class="flex flex-1 flex-col items-center justify-center bg-center bg-no-repeat bg-contain" style="background-image: url('/images/tenniscourt.png'); background-size: 67% auto;">
 	<div class="hero-copy">
 		<h1 class="home-subtitle">Analyze every frame.</h1>
 		<p class="home-title">Perfect your stroke.</p>
 		<label class="upload-button">
-			<input class="upload-input" type="file" accept=".mp4,video/mp4" />
+			<input class="upload-input" type="file" accept=".mp4,video/mp4" onchange={videoUpload}/>
 			<span>UPLOAD MATCH</span>
 			<svg
 				aria-hidden="true"
